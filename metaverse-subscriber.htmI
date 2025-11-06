@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="fa">
+<head>
+<meta charset="utf-8">
+<title>متاورس هندسه — شبیه‌سازی کره</title>
+<script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  body{margin:0;font-family:Tahoma,"B Nazanin",sans-serif}
+  #ui{position:absolute;left:12px;top:12px;background:rgba(255,255,255,0.95);padding:12px;border-radius:8px;z-index:5;width:320px}
+  #ui h3{margin:0 0 8px 0;color:#0b7a3b}
+  .small{font-size:13px;color:#333}
+  canvas{background:#fff;border-radius:6px}
+</style>
+</head>
+<body>
+<div id="ui">
+  <h3>متاورس هندسه — کره زنده</h3>
+  <div>شعاع: <b id="rVal">-</b>  واحد</div>
+  <div>حجم: <b id="vVal">-</b> واحد³</div>
+  <div style="margin-top:8px"><button id="connect">Connect MQTT</button></div>
+  <div style="margin-top:8px"><canvas id="chart" width="300" height="140"></canvas></div>
+  <div class="small" style="margin-top:8px">Topic: <code>uni/geometry/radius</code></div>
+</div>
+
+<a-scene background="color: #c6efce">
+  <a-entity position="0 1.2 -2">
+    <a-sphere id="mysphere" radius="1" color="#ff8c00" segments-width="32" segments-height="32"></a-sphere>
+  </a-entity>
+  <a-entity camera position="0 1.6 0"></a-entity>
+  <a-entity light="type:ambient; intensity:0.6"></a-entity>
+  <a-entity light="type:point; intensity:0.8" position="2 4 1"></a-entity>
+</a-scene>
+
+<script>
+const rVal = document.getElementById('rVal');
+const vVal = document.getElementById('vVal');
+const sphere = document.getElementById('mysphere');
+const btn = document.getElementById('connect');
+
+function volumeSphere(r){ return (4/3)*Math.PI*Math.pow(r,3); }
+
+// Chart.js setup
+const ctx = document.getElementById('chart').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: { labels: [], datasets: [{ label: 'حجم', data: [], fill:false, borderColor:'#ff8c00' }]},
+  options: { responsive:true, maintainAspectRatio:false, scales:{ x:{ display:true }, y:{ display:true } } }
+});
+
+const host = 'wss://broker.hivemq.com:8000/mqtt';
+let client = null;
+
+btn.addEventListener('click', () => {
+  if(client && client.connected){ client.end(); btn.textContent = 'Connect MQTT'; return; }
+  client = mqtt.connect(host);
+  client.on('connect', () => {
+    console.log('MQTT connected'); btn.textContent = 'Disconnect'; client.subscribe('uni/geometry/radius');
+  });
+  client.on('message', (topic, message) => {
+    const str = message.toString();
+    const r = parseFloat(str);
+    if(isNaN(r)) return;
+    const rClamped = Math.max(0.05, Math.min(r, 20));
+    sphere.setAttribute('radius', rClamped);
+    rVal.textContent = rClamped.toFixed(2);
+    vVal.textContent = volumeSphere(rClamped).toFixed(3);
+    // update chart
+    const t = new Date().toLocaleTimeString();
+    chart.data.labels.push(t);
+    chart.data.datasets[0].data.push( Number(volumeSphere(rClamped).toFixed(3)) );
+    if(chart.data.labels.length>20){ chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
+    chart.update();
+  });
+  client.on('error', (e)=> console.log('MQTT error', e));
+  client.on('close', ()=> { console.log('MQTT closed'); btn.textContent='Connect MQTT'; });
+});
+</script>
+</body>
+</html>
